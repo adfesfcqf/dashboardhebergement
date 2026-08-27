@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Activation — Ticket Bot</title>
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<link rel="stylesheet" href="/assets/css/style.css">
+<style>
+  .activate-user {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px; margin-bottom: 24px;
+  }
+  .activate-user img { width: 34px; height: 34px; border-radius: 50%; }
+  .activate-user .name { font-weight: 600; font-size: 14px; }
+  .activate-user .tag { font-size: 12px; color: var(--text-muted); }
+  #input-code {
+    text-align: center; letter-spacing: 0.08em; font-size: 16px;
+    text-transform: uppercase;
+  }
+  .activate-hint { text-align: center; margin-top: 22px; }
+  .activate-hint a { color: var(--cyan); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-logo">🔑</div>
+    <h1>Active ton accès</h1>
+    <p class="sub">Entre le code client que tu as reçu après ton paiement pour débloquer ton dashboard.</p>
+
+    <div class="activate-user" id="activate-user" style="display:none;">
+      <img id="activate-avatar" src="" alt="">
+      <div>
+        <div class="name" id="activate-name"></div>
+        <div class="tag">Connecté avec Discord</div>
+      </div>
+    </div>
+
+    <div class="auth-error" id="error"></div>
+
+    <form id="activate-form">
+      <div class="field">
+        <label for="input-code">Code client</label>
+        <input type="text" id="input-code" class="mono" placeholder="TCKT-XXXX-XXXX-XXXX" autocomplete="off" autofocus required>
+        <p class="field-hint">Ce code t'a été envoyé après ton paiement Revolut ou PayPal.</p>
+      </div>
+      <button type="submit" class="btn-primary" id="submit-btn" style="width:100%;">Activer mon accès</button>
+    </form>
+
+    <p class="activate-hint">Pas encore payé ? <a href="/accueil">Retourne voir les offres</a></p>
+  </div>
+</div>
+<script>
+  const errorBox = document.getElementById('error');
+  const form = document.getElementById('activate-form');
+  const submitBtn = document.getElementById('submit-btn');
+  const codeInput = document.getElementById('input-code');
+
+  function showError(msg) {
+    errorBox.textContent = msg;
+    errorBox.classList.add('show');
+  }
+
+  fetch('/api/activate/me')
+    .then((r) => (r.ok ? r.json() : Promise.reject()))
+    .then(({ user }) => {
+      document.getElementById('activate-avatar').src = user.avatar;
+      document.getElementById('activate-name').textContent = user.username;
+      document.getElementById('activate-user').style.display = 'flex';
+    })
+    .catch(() => { window.location.href = '/login'; });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.classList.remove('show');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Vérification...';
+
+    try {
+      const res = await fetch('/api/activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: codeInput.value }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showError(data.error || 'Code invalide.');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Activer mon accès';
+        return;
+      }
+      window.location.href = '/dashboard';
+    } catch (err) {
+      showError('Erreur réseau, réessaie.');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Activer mon accès';
+    }
+  });
+</script>
+</body>
+</html>

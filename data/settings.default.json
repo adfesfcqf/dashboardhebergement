@@ -1,0 +1,63 @@
+{
+  "auth": {
+    "clientId": "",
+    "clientSecret": "",
+    "redirectUri": "",
+    "adminIds": [],
+    "adminRoles": {},
+    "guildId": ""
+  },
+  "sessionSecret": null,
+  "bot": {
+    "token": "",
+    "panelGuildId": "",
+    "panelChannelId": "",
+    "staffGuildId": "",
+    "staffCategoryId": "",
+    "embedColor": "5865F2",
+    "panelBanner": "",
+    "panelTitle": "🎫 Support",
+    "panelDescription": "Clique sur le bouton correspondant à ta demande pour ouvrir un ticket.\nLa discussion se déroulera **en message privé**.",
+    "footerText": "Un seul ticket ouvert à la fois par utilisateur."
+  },
+  "statusBot": {
+    "token": "",
+    "enabled": false,
+    "cfxCode": "",
+    "mode": "voice-name",
+    "refreshSeconds": 60,
+    "guildId": "",
+    "statusChannelId": "",
+    "nameFormat": "🟢 {players}/{maxplayers} joueurs",
+    "lastServerStatus": null
+  },
+  "ticketTypes": [
+    {
+      "id": "support",
+      "label": "Support",
+      "emoji": "🛠️",
+      "description": "Problème technique ou aide générale",
+      "color": "5865F2",
+      "allowedRoles": []
+    }
+  ],
+  "subscription": {
+    "customerId": "",
+    "planType": "none",
+    "active": false,
+    "autoRenew": false,
+    "options": {
+      "fivem": false,
+      "priority": false,
+      "backups": false
+    },
+    "payment": {
+      "revolutEnabled": false,
+      "revolutTag": "",
+      "revolutLink": "",
+      "paypalEnabled": false,
+      "paypalEmail": "",
+      "paypalLink": ""
+    }
+  }
+}

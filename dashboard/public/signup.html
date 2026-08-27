@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Créer un compte — Ticket Bot</title>
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<link rel="stylesheet" href="/assets/css/style.css">
+</head>
+<body>
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-logo">🎫</div>
+    <h1>Créer un compte</h1>
+    <p class="sub">Choisis un nom d'utilisateur et un mot de passe, puis renseigne ton identifiant d'achat pour activer ton espace.</p>
+    <div class="auth-error" id="error"></div>
+
+    <form id="signup-form">
+      <div class="field">
+        <label>Que veux-tu héberger ?</label>
+        <div class="service-picker">
+          <label class="service-option">
+            <input type="radio" name="service" value="discord" checked>
+            <span>🤖 Bot Discord<br><small>Modmail / tickets</small></span>
+          </label>
+          <label class="service-option">
+            <input type="radio" name="service" value="minecraft">
+            <span>⛏️ Serveur Minecraft<br><small>Paper, plugins, fichiers</small></span>
+          </label>
+        </div>
+      </div>
+      <div class="field">
+        <label for="username">Nom d'utilisateur</label>
+        <input type="text" id="username" placeholder="ex: mishima" required autocomplete="username" minlength="3" maxlength="32">
+      </div>
+      <div class="field">
+        <label for="password">Mot de passe</label>
+        <input type="password" id="password" placeholder="6 caractères minimum" required autocomplete="new-password" minlength="6">
+      </div>
+      <div class="field">
+        <label for="password2">Confirme le mot de passe</label>
+        <input type="password" id="password2" placeholder="••••••••" required autocomplete="new-password" minlength="6">
+      </div>
+      <div class="field">
+        <label for="code">Identifiant d'achat</label>
+        <input type="text" id="code" class="mono" placeholder="TCKT-XXXX-XXXX-XXXX" required autocomplete="off">
+        <p class="field-hint">Le code reçu à l'achat. Pas encore de compte ? <a href="/accueil">Voir les offres</a>.</p>
+      </div>
+      <button type="submit" class="btn-primary" style="width:100%">Créer mon compte</button>
+    </form>
+    <p class="sub" style="margin-top:16px;">Déjà un compte ? <a href="/login">Se connecter</a></p>
+  </div>
+</div>
+<script>
+const form = document.getElementById('signup-form');
+const errorBox = document.getElementById('error');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errorBox.classList.remove('show');
+
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const password2 = document.getElementById('password2').value;
+  const code = document.getElementById('code').value.trim();
+  const service = document.querySelector('input[name="service"]:checked')?.value || 'discord';
+
+  if (password !== password2) {
+    errorBox.textContent = 'Les mots de passe ne correspondent pas.';
+    errorBox.classList.add('show');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, code, service }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      errorBox.textContent = data.error || 'Erreur inconnue.';
+      errorBox.classList.add('show');
+      return;
+    }
+    window.location.href = '/dashboard';
+  } catch {
+    errorBox.textContent = 'Connexion au serveur impossible, réessaie.';
+    errorBox.classList.add('show');
+  }
+});
+</script>
+</body>
+</html>

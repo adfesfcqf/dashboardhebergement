@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ticket Bot — Choisis ton offre</title>
+<link rel="stylesheet" href="/assets/css/style.css">
+<style>
+  /* ── Nav ────────────────────────────────────────────── */
+  .landing-nav {
+    display: flex; align-items: center; justify-content: space-between;
+    max-width: 1100px; margin: 0 auto; padding: 28px 24px 0;
+  }
+  .landing-brand { display: flex; align-items: center; gap: 12px; }
+  .landing-brand .auth-logo { margin: 0; width: 40px; height: 40px; font-size: 18px; }
+  .landing-brand span { font-family: var(--font-display); font-weight: 700; font-size: 18px; }
+  .btn-nav-login {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 18px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--surface-2);
+    color: var(--text); font-weight: 600; font-size: 14px; text-decoration: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+  .btn-nav-login:hover { border-color: var(--cyan); box-shadow: 0 0 12px var(--glow-cyan); }
+
+  /* ── Hero ───────────────────────────────────────────── */
+  .hero { max-width: 720px; margin: 64px auto 56px; padding: 0 24px; text-align: center; }
+  .hero h1 { font-size: 38px; line-height: 1.15; margin-bottom: 16px; }
+  .hero h1 .accent {
+    background: linear-gradient(135deg, var(--cyan), var(--amber));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero p { color: var(--text-muted); font-size: 16px; line-height: 1.6; margin: 0; }
+
+  /* ── Pricing ────────────────────────────────────────── */
+  .pricing-section { max-width: 940px; margin: 0 auto; padding: 0 24px 80px; }
+  .pricing-grid {
+    display: flex; justify-content: center; gap: 24px;
+  }
+  .pricing-grid .plan-card { width: 100%; max-width: 380px; }
+  .plan-card {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 36px 32px;
+    display: flex; flex-direction: column;
+    transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.2s ease;
+  }
+  .plan-card:hover { transform: translateY(-3px); }
+  .plan-card.featured { border-color: rgba(196, 72, 221, 0.5); box-shadow: 0 0 30px var(--glow-cyan); }
+  .plan-badge {
+    position: absolute; top: -13px; right: 28px;
+    background: linear-gradient(135deg, var(--cyan), var(--amber));
+    color: #fff; font-size: 12px; font-weight: 700; letter-spacing: 0.03em;
+    padding: 5px 14px; border-radius: 20px;
+    box-shadow: 0 4px 14px var(--glow-cyan);
+  }
+  .plan-name { font-family: var(--font-display); font-size: 20px; margin-bottom: 6px; }
+  .plan-desc { color: var(--text-muted); font-size: 14px; margin: 0 0 22px; min-height: 40px; }
+  .plan-price { display: flex; align-items: baseline; gap: 6px; margin-bottom: 26px; }
+  .plan-price .amount { font-family: var(--font-display); font-size: 40px; font-weight: 700; }
+  .plan-price .cycle { color: var(--text-muted); font-size: 14px; }
+  .plan-features { list-style: none; padding: 0; margin: 0 0 30px; display: flex; flex-direction: column; gap: 13px; flex: 1; }
+  .plan-features li { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; color: var(--text); }
+  .plan-features li.disabled { color: var(--text-muted); opacity: 0.55; }
+  .plan-features svg { flex-shrink: 0; margin-top: 2px; color: var(--cyan); }
+  .plan-features li.disabled svg { color: var(--text-muted); }
+  .btn-plan {
+    width: 100%; padding: 14px 20px; border-radius: 10px;
+    font-family: var(--font-body); font-weight: 600; font-size: 15px;
+    cursor: pointer; text-align: center;
+  }
+
+  .login-note { text-align: center; margin-top: 40px; color: var(--text-muted); font-size: 14px; }
+  .login-note a { color: var(--cyan); font-weight: 600; }
+
+  /* ── Modal paiement ───────────────────────────────────── */
+  .pay-option {
+    display: flex; align-items: center; gap: 14px;
+    padding: 16px 18px; margin-bottom: 12px;
+    border: 1px solid var(--border); border-radius: 12px;
+    text-decoration: none; color: var(--text);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease;
+  }
+  .pay-option:hover { border-color: var(--cyan); box-shadow: 0 0 14px var(--glow-cyan); transform: translateY(-1px); }
+  .pay-option .payment-logo {
+    width: 34px; height: 34px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; color: #fff; flex-shrink: 0; font-size: 15px;
+  }
+  .pay-option .payment-logo.revolut { background: #0666EB; }
+  .pay-option .payment-logo.paypal { background: #003087; }
+  .pay-option .pay-text { flex: 1; }
+  .pay-option .pay-title { font-weight: 600; font-size: 15px; }
+  .pay-option .pay-sub { font-size: 13px; color: var(--text-muted); }
+  .pay-summary {
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 18px; margin-bottom: 22px;
+  }
+  .pay-summary .plan { font-weight: 600; }
+  .pay-summary .price { font-family: var(--font-display); color: var(--cyan); font-weight: 700; }
+
+  .pay-option.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+  .pay-unavailable-badge {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.02em;
+    color: #ff8a8a; background: rgba(255, 90, 90, 0.12);
+    border: 1px solid rgba(255, 90, 90, 0.35);
+    border-radius: 20px; padding: 3px 10px; flex-shrink: 0;
+  }
+  .pay-notice {
+    display: flex; align-items: flex-start; gap: 10px;
+    background: rgba(255, 176, 32, 0.1);
+    border: 1px solid rgba(255, 176, 32, 0.35);
+    border-radius: 10px; padding: 12px 14px; margin-bottom: 16px;
+    font-size: 13px; line-height: 1.5; color: var(--text);
+  }
+
+  @media (max-width: 720px) {
+    .hero h1 { font-size: 30px; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="landing-nav">
+  <div class="landing-brand">
+    <div class="auth-logo">🎫</div>
+    <span>Ticket Bot</span>
+  </div>
+  <a href="/login" class="btn-nav-login">Se connecter</a>
+</nav>
+
+<section class="hero">
+  <h1>Notre <span class="accent">offre</span></h1>
+  <p>Une formule simple et complète pour gérer les tickets de ton serveur. Règle en un clic via Revolut ou PayPal, puis connecte-toi avec Discord pour accéder à ton dashboard.</p>
+</section>
+
+<section class="pricing-section">
+  <div class="pricing-grid">
+
+    <!-- ── Offre Standard ─────────────────────────────── -->
+    <div class="plan-card featured" id="plan-standard">
+      <div class="plan-name">Standard</div>
+      <p class="plan-desc">L'essentiel pour gérer les tickets de ton serveur.</p>
+      <div class="plan-price">
+        <span class="amount">2,50&nbsp;€</span>
+        <span class="cycle">/ mois</span>
+      </div>
+      <ul class="plan-features">
+        <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Bot de tickets sur 1 serveur Discord</li>
+        <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Dashboard web & statistiques de base</li>
+        <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Console live & export CSV</li>
+        <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Réponse sous 24h</li>
+        <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Sauvegardes automatiques</li>
+      </ul>
+      <button class="btn-plan btn-primary" onclick="openPayModal('standard')">Choisir cette offre</button>
+    </div>
+
+  </div>
+
+  <p class="login-note">Déjà client ? <a href="/login">Connecte-toi avec Discord</a> pour accéder à ton dashboard.</p>
+</section>
+
+<!-- ── Modal choix du moyen de paiement ─────────────────── -->
+<div class="modal-backdrop" id="pay-modal-backdrop">
+  <div class="modal">
+    <h2>Choisis ton moyen de paiement</h2>
+    <div class="pay-summary">
+      <span class="plan" id="pay-summary-plan">Offre Standard</span>
+      <span class="price" id="pay-summary-price">4,99 € / mois</span>
+    </div>
+
+    <div class="pay-notice">
+      ⚠️ Paiement par Revolut actuellement indisponible. Merci de régler via PayPal en attendant.
+    </div>
+
+    <span id="pay-link-revolut" class="pay-option disabled" aria-disabled="true">
+      <span class="payment-logo revolut">R</span>
+      <span class="pay-text">
+        <div class="pay-title">Payer avec Revolut</div>
+        <div class="pay-sub">Temporairement indisponible</div>
+      </span>
+      <span class="pay-unavailable-badge">Indisponible</span>
+    </span>
+
+    <a href="#" id="pay-link-paypal" target="_blank" rel="noopener" class="pay-option">
+      <span class="payment-logo paypal">P</span>
+      <span class="pay-text">
+        <div class="pay-title">Payer avec PayPal</div>
+        <div class="pay-sub">Paiement sécurisé via PayPal.me</div>
+      </span>
+    </a>
+
+    <p class="field-hint" style="margin-top:6px;">
+      Une fois le paiement effectué, tu recevras un <strong>code client</strong>. Connecte-toi avec ton compte Discord puis saisis ce code pour activer ton offre.
+    </p>
+
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closePayModal()">Fermer</button>
+      <a href="/login" class="btn-primary" style="display:inline-flex; align-items:center; text-decoration:none; padding:12px 20px;">Se connecter</a>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Configuration des offres & liens de paiement ──────────────
+  // ⚠️ Remplace les liens ci-dessous par ton vrai lien PayPal.me
+  // (le même que celui configuré dans Dashboard → Gestion & Abonnement → Moyens de paiement).
+  // Le paiement Revolut est désactivé côté client tant qu'il est indisponible (cf. pay-notice).
+  const PLANS = {
+    standard: {
+      label: 'Offre Standard',
+      price: '2,50 € / mois',
+      paypalLink: 'https://paypal.me/tonpseudo/2.50',
+    },
+  };
+
+  const backdrop = document.getElementById('pay-modal-backdrop');
+
+  function openPayModal(planId) {
+    const plan = PLANS[planId];
+    if (!plan) return;
+    document.getElementById('pay-summary-plan').textContent = plan.label;
+    document.getElementById('pay-summary-price').textContent = plan.price;
+    document.getElementById('pay-link-paypal').href = plan.paypalLink;
+    backdrop.classList.add('show');
+  }
+
+  function closePayModal() {
+    backdrop.classList.remove('show');
+  }
+
+  backdrop.addEventListener('click', (e) => {
+    if (e.target === backdrop) closePayModal();
+  });
+</script>
+
+</body>
+</html>

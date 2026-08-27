@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Connexion — Ticket Bot</title>
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<link rel="stylesheet" href="/assets/css/style.css">
+</head>
+<body>
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-logo">🎫</div>
+    <h1>Connexion</h1>
+    <p class="sub">Connecte-toi avec ton nom d'utilisateur et ton mot de passe.</p>
+    <div class="auth-error" id="error"></div>
+
+    <form id="login-form">
+      <div class="field">
+        <label for="username">Nom d'utilisateur</label>
+        <input type="text" id="username" placeholder="Ton nom d'utilisateur" required autocomplete="username">
+      </div>
+      <div class="field">
+        <label for="password">Mot de passe</label>
+        <input type="password" id="password" placeholder="••••••••" required autocomplete="current-password">
+      </div>
+      <button type="submit" class="btn-primary" style="width:100%">Se connecter</button>
+    </form>
+    <p class="sub" style="margin-top:16px;">Pas encore de compte ? <a href="/signup">Créer un compte</a></p>
+  </div>
+</div>
+<script>
+const errorBox = document.getElementById('error');
+const params = new URLSearchParams(window.location.search);
+const err = params.get('error');
+if (err) {
+  errorBox.textContent = err;
+  errorBox.classList.add('show');
+}
+
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errorBox.classList.remove('show');
+  const body = {
+    username: document.getElementById('username').value.trim(),
+    password: document.getElementById('password').value,
+  };
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      errorBox.textContent = data.error || 'Erreur inconnue.';
+      errorBox.classList.add('show');
+      return;
+    }
+    window.location.href = '/dashboard';
+  } catch {
+    errorBox.textContent = 'Connexion au serveur impossible, réessaie.';
+    errorBox.classList.add('show');
+  }
+});
+</script>
+</body>
+</html>
