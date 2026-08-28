@@ -11,12 +11,14 @@ const minecraftManager = require('../lib/minecraftManager');
 const { getLeaderboard: getDayzLeaderboard } = require('../lib/dayzManager');
 const nitradoApi = require('../lib/nitradoApi');
 const fileManager = require('../lib/fileManager');
+const musicManager = require('../lib/musicManager');
 const { pool: db } = require('../lib/db');
 const { isValidEmoji } = require('../lib/config');
 const customerCodes = require('../lib/customerCodes');
 const { fetchServerStatus } = require('../lib/cfxApi');
 const { hashPassword, verifyPassword, validateUsername, validatePassword } = require('../lib/auth');
 const auditLog = require('../lib/auditLog');
+const playerLog = require('../lib/playerLog');
 const processStats = require('../lib/processStats');
 
 const VIEWS_DIR = __dirname;
@@ -52,7 +54,20 @@ async function resolveTenant(req, res, next) {
     req.adminRole = store.getAdminRole(req.session.discordUser.id);
     req.tenantService = await tenantManager.getService(tenantId);
     if (req.tenantService === 'minecraft') {
+      // Le contrôleur est un singleton par tenant (voir minecraftManager.get) —
+      // on ne branche donc l'auto-lecture de la playlist qu'une seule fois,
+      // à sa toute première création, pas à chaque requête HTTP.
+      const isNewController = !minecraftManager.has(tenantId);
       req.minecraft = minecraftManager.get(tenantId, store);
+      if (isNewController) {
+        req.minecraft.on('statusChanged', (status) => {
+          if (status.status === 'running') {
+            musicManager.autoStartIfEnabled(tenantId, store, req.minecraft);
+          } else if (status.status === 'stopped' || status.status === 'crashed') {
+            musicManager.stopPlaylist(tenantId);
+          }
+        });
+      }
     } else {
       req.bot = botManager.get(tenantId, store);
     }
@@ -168,7 +183,11 @@ function mapTicketMessage(m) {
 function createDashboardServer() {
   const app = express();
   app.set('trust proxy', 1);
-  app.use(express.json({ limit: '2mb' })); // 2mb : marge pour les photos de profil en base64
+  // Limite globale relevée à 100mb : les pistes musicales et les uploads
+  // de fichiers (base64) peuvent dépasser 2mb — avec un middleware global
+  // trop restrictif, ces requêtes étaient rejetées (413) avant même
+  // d'atteindre la limite plus permissive déclarée sur ces routes.
+  app.use(express.json({ limit: '100mb' }));
   app.use(
     session({
       store: sessionStore,
@@ -680,6 +699,41 @@ function createDashboardServer() {
     }
   });
 
+  // ── Paramètres du compte : nom d'utilisateur ────────────────────
+  // Uniquement pour les comptes locaux (identifiant "local:<id>", créés via
+  // /signup avec mot de passe) : pour un compte connecté via Discord, le
+  // pseudo est resynchronisé depuis Discord à CHAQUE connexion (voir le
+  // callback OAuth plus haut, `ON DUPLICATE KEY UPDATE username = ...`), donc
+  // le laisser modifiable ici serait un changement qui s'annule tout seul
+  // à la prochaine connexion — mieux vaut refuser clairement que de laisser
+  // croire que ça a marché.
+  api.post('/profile/username', async (req, res) => {
+    const dbUserId = req.session.discordUser?.dbId;
+    const accountId = String(req.session.discordUser?.id || '');
+    if (!dbUserId) return res.status(400).json({ error: 'Compte introuvable.' });
+    if (!accountId.startsWith('local:')) {
+      return res.status(400).json({
+        error: "Ce compte est connecté via Discord : le nom d'utilisateur est synchronisé automatiquement depuis ton profil Discord et ne peut pas être changé ici.",
+      });
+    }
+
+    const check = validateUsername(req.body?.username);
+    if (!check.ok) return res.status(400).json({ error: check.error });
+
+    try {
+      const [existing] = await db.query('SELECT id FROM users WHERE username = ? AND id != ?', [check.username, dbUserId]);
+      if (existing.length) return res.status(400).json({ error: "Ce nom d'utilisateur est déjà pris." });
+
+      await db.query('UPDATE users SET username = ? WHERE id = ?', [check.username, dbUserId]);
+      req.session.discordUser.username = check.username;
+      req.session.discordUser.handle = check.username;
+      res.json({ ok: true, username: check.username });
+    } catch (err) {
+      console.error('Erreur sauvegarde username:', err.message);
+      res.status(500).json({ error: "Impossible d'enregistrer le nom d'utilisateur." });
+    }
+  });
+
   api.get('/fivem/config', async (req, res) => {
     try {
       const dbUserId = req.session.discordUser.dbId;
@@ -827,6 +881,134 @@ function createDashboardServer() {
       bot: { ...updated, token: updated.token ? maskToken(updated.token) : '' },
       panel,
     });
+  });
+
+  // ── Playlist musicale (Configuration générale) ────────────────────
+  // Upload de pistes (tous formats acceptés : .mp3, .wav, .mp4, .ogg...)
+  // + lecture en boucle sur le serveur Minecraft du tenant, quand il en
+  // a un (voir lib/musicManager.js pour la limite technique honnête sur
+  // ce que "jouer" une piste veut vraiment dire en jeu).
+  api.get('/music', requireRole('administrateur'), (req, res) => {
+    const config = req.tenantStore.getMusicPlaylist();
+    res.json({
+      ...config,
+      playing: musicManager.isPlaying(req.tenantId),
+      currentTrackId: musicManager.currentTrackId(req.tenantId),
+      hasLinkedServer: req.tenantService === 'minecraft',
+    });
+  });
+
+  api.post('/music/config', requireRole('administrateur'), (req, res) => {
+    const { enabled, volume, loop, trackDurationSec } = req.body || {};
+    const patch = {};
+    if (enabled !== undefined) patch.enabled = !!enabled;
+    if (volume !== undefined) patch.volume = Math.max(0, Math.min(100, Number(volume) || 0));
+    if (loop !== undefined) patch.loop = !!loop;
+    if (trackDurationSec !== undefined) patch.trackDurationSec = Math.max(5, Number(trackDurationSec) || 180);
+    const updated = req.tenantStore.setMusicPlaylist(patch);
+    auditLog.logFromRequest(req, 'music.config.update', null, { fieldsChanged: Object.keys(patch) });
+
+    // La playlist se lance/coupe toute seule au démarrage/arrêt du
+    // serveur (voir resolveTenant + musicManager.autoStartIfEnabled) —
+    // mais si l'admin active/désactive la case "Diffusion automatique"
+    // alors que le serveur tourne déjà, on applique l'effet tout de suite
+    // plutôt que d'attendre le prochain redémarrage.
+    if (patch.enabled !== undefined && req.tenantService === 'minecraft' && req.minecraft) {
+      if (patch.enabled && req.minecraft.status === 'running') {
+        try {
+          musicManager.startPlaylist(req.tenantId, req.tenantStore, req.minecraft);
+        } catch {
+          // Playlist vide, etc. — pas bloquant, l'admin verra l'erreur au
+          // prochain ajout de piste / passage à "running".
+        }
+      } else if (!patch.enabled) {
+        musicManager.stopPlaylist(req.tenantId);
+      }
+    }
+
+    res.json(updated);
+  });
+
+  api.post('/music/tracks', requireRole('administrateur'), express.json({ limit: '90mb' }), async (req, res) => {
+    try {
+      const track = await musicManager.saveTrack(req.tenantId, {
+        name: req.body?.name,
+        base64: req.body?.base64,
+      });
+      const config = req.tenantStore.getMusicPlaylist();
+      const updated = req.tenantStore.setMusicPlaylist({ tracks: [...config.tracks, track] });
+      auditLog.logFromRequest(req, 'music.track.add', null, { name: track.name });
+      res.json(updated);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  api.post('/music/tracks/delete', requireRole('administrateur'), async (req, res) => {
+    try {
+      const trackId = req.body?.id;
+      const config = req.tenantStore.getMusicPlaylist();
+      const track = config.tracks.find((t) => t.id === trackId);
+      if (!track) return res.status(404).json({ error: 'Piste introuvable.' });
+      await musicManager.deleteTrack(req.tenantId, track.filename);
+      const updated = req.tenantStore.setMusicPlaylist({ tracks: config.tracks.filter((t) => t.id !== trackId) });
+      auditLog.logFromRequest(req, 'music.track.delete', null, { name: track.name });
+      res.json(updated);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  api.post('/music/tracks/reorder', requireRole('administrateur'), (req, res) => {
+    const order = Array.isArray(req.body?.order) ? req.body.order : [];
+    const config = req.tenantStore.getMusicPlaylist();
+    const byId = new Map(config.tracks.map((t) => [t.id, t]));
+    const reordered = order.map((id) => byId.get(id)).filter(Boolean);
+    // Sécurité : si l'ordre reçu ne couvre pas toutes les pistes (bug front,
+    // requête tronquée...), on complète avec celles manquantes plutôt que
+    // de silencieusement en perdre.
+    for (const t of config.tracks) if (!order.includes(t.id)) reordered.push(t);
+    const updated = req.tenantStore.setMusicPlaylist({ tracks: reordered });
+    res.json(updated);
+  });
+
+  api.post('/music/play', requireRole('administrateur'), (req, res) => {
+    if (req.tenantService !== 'minecraft' || !req.minecraft) {
+      return res.status(400).json({ error: "Aucun serveur Minecraft n'est lié à ce compte." });
+    }
+    try {
+      const result = musicManager.startPlaylist(req.tenantId, req.tenantStore, req.minecraft, {
+        fromTrackId: req.body?.id,
+      });
+      req.tenantStore.setMusicPlaylist({ enabled: true });
+      auditLog.logFromRequest(req, 'music.play', null, {});
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  api.post('/music/stop', requireRole('administrateur'), (req, res) => {
+    musicManager.stopPlaylist(req.tenantId);
+    req.tenantStore.setMusicPlaylist({ enabled: false });
+    auditLog.logFromRequest(req, 'music.stop', null, {});
+    res.json({ playing: false });
+  });
+
+  api.post('/music/resource-pack', requireRole('administrateur'), async (req, res) => {
+    try {
+      const result = await musicManager.buildResourcePack(req.tenantId, req.tenantStore, req.minecraft);
+      auditLog.logFromRequest(req, 'music.resourcepack.build', null, result);
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  api.get('/music/resource-pack/download', requireRole('administrateur'), (req, res) => {
+    const filePath = musicManager.resourcePackDownloadPath(req.tenantId);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Génère le resource pack avant de le télécharger.' });
+    res.download(filePath, 'playlist-musicale.mcpack');
   });
 
   // ── Module DayZ (économie / safe zones / classements) ────────────
@@ -1019,10 +1201,22 @@ function createDashboardServer() {
     if (safeEdition === 'java' && !mcVersion) {
       return res.status(400).json({ error: 'Version Minecraft requise.' });
     }
+    if (req.minecraft.getStatus().status === 'provisioning') {
+      return res.status(409).json({ error: 'Une installation est déjà en cours pour ce serveur.' });
+    }
     const defaultPort = safeEdition === 'bedrock' ? 19132 : 25565;
+
+    // On répond immédiatement au lieu d'attendre la fin du téléchargement +
+    // extraction (potentiellement 30s-2min) : c'est CA qui rendait le
+    // bouton "Installer" figé/pas réactif. Le téléchargement continue en
+    // arrière-plan ; le front suit la progression en direct via les logs
+    // (déjà exposés/poll-és pour la console) et détecte la fin via
+    // GET /api/minecraft (runtime.status), sans bloquer la requête HTTP.
+    res.json({ ok: true, provisioning: true });
+
     try {
       await req.minecraft.provision({ mcVersion, port, edition: safeEdition });
-      const updated = req.tenantStore.setMinecraft({
+      req.tenantStore.setMinecraft({
         name: name || 'Mon serveur',
         edition: safeEdition,
         mcVersion: safeEdition === 'bedrock' ? '' : mcVersion,
@@ -1031,29 +1225,70 @@ function createDashboardServer() {
         eulaAccepted: true,
         created: true,
       });
-      res.json({ ok: true, config: updated });
+      auditLog.logFromRequest(req, 'minecraft.create', name || 'Mon serveur', { edition: safeEdition });
     } catch (err) {
-      res.status(400).json({ error: err.message });
+      // L'erreur est déjà loggée dans la console (this.lastError / _pushLog
+      // côté provision()) — le front l'affiche via runtime.lastError.
+    }
+  });
+
+  // ── Mise à jour vers la dernière version Minecraft disponible.
+  // Réponse immédiate (comme /minecraft/create) car le téléchargement peut
+  // prendre du temps — le front suit la progression via les logs + le
+  // statut 'updating' renvoyé par GET /api/minecraft. ─────────────────
+  api.post('/minecraft/update', requireMinecraft, requireRole('administrateur'), async (req, res) => {
+    const cfg = req.tenantStore.getMinecraft();
+    const currentStatus = req.minecraft.getStatus().status;
+    if (currentStatus === 'provisioning' || currentStatus === 'updating') {
+      return res.status(409).json({ error: 'Une opération est déjà en cours pour ce serveur.' });
+    }
+    if (currentStatus !== 'stopped' && currentStatus !== 'crashed') {
+      return res.status(409).json({ error: 'Arrête le serveur avant de le mettre à jour.' });
+    }
+
+    res.json({ ok: true, updating: true });
+
+    auditLog.logFromRequest(req, 'minecraft.update.launched', cfg.name);
+    try {
+      const result = await req.minecraft.update({ mcVersion: req.body?.mcVersion });
+      req.tenantStore.setMinecraft({ mcVersion: cfg.edition === 'bedrock' ? '' : result.version });
+      auditLog.logFromRequest(req, 'minecraft.update.success', cfg.name, { version: result.version });
+    } catch (err) {
+      auditLog.logFromRequest(req, 'minecraft.update.failed', cfg.name, { error: err.message });
     }
   });
 
   api.post('/minecraft/start', requireMinecraft, requireRole('administrateur'), async (req, res) => {
+    const cfg = req.tenantStore.getMinecraft();
+    auditLog.logFromRequest(req, 'minecraft.start.launched', cfg.name);
     try {
-      const cfg = req.tenantStore.getMinecraft();
-      res.json(await req.minecraft.start({ memoryMb: cfg.memoryMb, edition: cfg.edition }));
+      const result = await req.minecraft.start({ memoryMb: cfg.memoryMb, edition: cfg.edition });
+      res.json(result);
+      auditLog.logFromRequest(req, 'minecraft.start.success', cfg.name);
     } catch (err) {
       res.status(400).json({ error: err.message });
+      auditLog.logFromRequest(req, 'minecraft.start.failed', cfg.name, { error: err.message });
     }
   });
 
   api.post('/minecraft/stop', requireMinecraft, requireRole('administrateur'), async (req, res) => {
+    const cfg = req.tenantStore.getMinecraft();
     res.json(await req.minecraft.stop());
+    auditLog.logFromRequest(req, 'minecraft.stop', cfg.name);
   });
 
   api.post('/minecraft/restart', requireMinecraft, requireRole('administrateur'), async (req, res) => {
-    await req.minecraft.stop();
     const cfg = req.tenantStore.getMinecraft();
-    res.json(await req.minecraft.start({ memoryMb: cfg.memoryMb, edition: cfg.edition }));
+    auditLog.logFromRequest(req, 'minecraft.restart.launched', cfg.name);
+    try {
+      await req.minecraft.stop();
+      const result = await req.minecraft.start({ memoryMb: cfg.memoryMb, edition: cfg.edition });
+      res.json(result);
+      auditLog.logFromRequest(req, 'minecraft.restart.success', cfg.name);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+      auditLog.logFromRequest(req, 'minecraft.restart.failed', cfg.name, { error: err.message });
+    }
   });
 
   api.post('/minecraft/command', requireMinecraft, requireRole('administrateur'), (req, res) => {
@@ -1067,6 +1302,24 @@ function createDashboardServer() {
 
   api.get('/minecraft/logs', requireMinecraft, (req, res) => {
     res.json({ logs: req.minecraft.getLogs() });
+  });
+
+  // ── Logs du serveur (journal des actions joueurs) : recherche paginée,
+  // filtrable par type d'événement. requireMinecraft s'assure déjà que le
+  // tenant a bien le service Minecraft actif ; pas besoin d'être admin pour
+  // consulter (même niveau d'accès que /minecraft/logs). ──────────────
+  api.get('/minecraft/player-logs', requireMinecraft, async (req, res) => {
+    try {
+      const result = await playerLog.search(req.tenantId, {
+        query: req.query.q,
+        eventType: req.query.type,
+        limit: req.query.limit,
+        offset: req.query.offset,
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: `Impossible de lire le journal des joueurs : ${err.message}` });
+    }
   });
 
   // ── Configuration (server.properties) : lecture/écriture clé/valeur
@@ -1113,11 +1366,27 @@ function createDashboardServer() {
     res.json({ ok: true, admins: updated.admins || [] });
   });
 
+  // Installe un pack Bedrock (.mcpack/.mcaddon) envoyé en base64 depuis le
+  // dashboard : extraction, détection comportement/ressources via
+  // manifest.json, copie dans behavior_packs/ ou resource_packs/ et
+  // activation pour le monde courant. Limite à 150 Mo.
+  api.post('/minecraft/packs/install', requireMinecraft, requireRole('administrateur'), express.json({ limit: '150mb' }), async (req, res) => {
+    try {
+      const installed = await minecraftManager.installPack(req.tenantId, req.body?.base64 || '', req.body?.filename || '');
+      res.json({ ok: true, installed });
+      auditLog.logFromRequest(req, 'minecraft.pack_install', req.body?.filename || '');
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
   api.delete('/minecraft', requireMinecraft, requireRole('administrateur'), async (req, res) => {
     try {
+      const cfg = req.tenantStore.getMinecraft();
       await req.minecraft.wipe();
       req.tenantStore.setMinecraft({ created: false, mcVersion: '' });
       res.json({ ok: true });
+      auditLog.logFromRequest(req, 'minecraft.delete', cfg.name);
     } catch (err) {
       res.status(400).json({ error: err.message });
     }

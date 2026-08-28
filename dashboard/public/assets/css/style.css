@@ -171,6 +171,13 @@ textarea { resize: vertical; min-height: 85px; }
 @media (max-width: 720px) {
   .mc-properties-grid { grid-template-columns: 1fr; }
 }
+/* Sur très grand écran, .main s'élargit bien plus que 2 colonnes n'en ont
+   besoin : passer à 3 colonnes utilise vraiment l'espace au lieu de juste
+   étirer des champs déjà courts (nombre de joueurs, port…) sur toute la
+   largeur. */
+@media (min-width: 1700px) {
+  .mc-properties-grid { grid-template-columns: repeat(3, 1fr); }
+}
 
 .mc-side-by-side { display: flex; gap: 24px; align-items: stretch; }
 /* min-height: 0 casse le comportement par défaut des flex items ("ne
@@ -344,7 +351,7 @@ textarea { resize: vertical; min-height: 85px; }
   50% { opacity: 0.55; transform: scale(0.9); }
 }
 
-.main { flex: 1; padding: 40px 52px; max-width: 1440px; }
+.main { flex: 1; padding: 40px 56px; max-width: 2000px; }
 .page-header { margin-bottom: 34px; }
 .page-header h1 { font-size: 27px; }
 .page-header p { color: var(--text-muted); font-size: 15px; margin-top: 8px; }
@@ -490,6 +497,24 @@ textarea { resize: vertical; min-height: 85px; }
 .stub-actions button { padding: 8px 14px; font-size: 13px; }
 .color-dot { width: 14px; height: 14px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 
+/* ── Playlist musicale ─────────────────────────────────── */
+.music-tracks-list { margin-top: 16px; }
+.music-track {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin-bottom: 8px;
+}
+.music-track.is-playing { border-color: var(--cyan); box-shadow: 0 0 0 1px var(--cyan) inset; }
+.music-track-name { flex: 1; min-width: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.music-track-meta { font-size: 12px; color: var(--text-muted); flex-shrink: 0; }
+.music-track-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.music-track-actions button { padding: 4px 9px; font-size: 12px; }
+
 .roles-picker {
   display: flex; flex-wrap: wrap; gap: 10px;
   max-height: 180px; overflow-y: auto;
@@ -526,6 +551,19 @@ textarea { resize: vertical; min-height: 85px; }
 .modal h2 { font-size: 19px; margin-bottom: 22px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
 
+.mc-pack-dropzone {
+  border: 2px dashed var(--border); border-radius: var(--radius);
+  padding: 36px 20px; text-align: center; cursor: pointer;
+  color: var(--text-muted); transition: all 0.15s ease;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+}
+.mc-pack-dropzone:hover { border-color: var(--cyan); color: #2dd4bf; }
+.mc-pack-dropzone.drag-over {
+  border-color: var(--cyan); background: var(--cyan-dim); color: #2dd4bf;
+  box-shadow: 0 0 8px var(--glow-cyan);
+}
+.mc-pack-dropzone p { margin: 0; font-size: 14px; }
+
 .empty-state { text-align: center; padding: 48px 24px; color: var(--text-muted); }
 .empty-state .icon { font-size: 32px; margin-bottom: 12px; }
 
@@ -557,7 +595,7 @@ textarea { resize: vertical; min-height: 85px; }
 .mc-status-badge { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius: 999px; font-size: 13px; }
 .mc-status-badge.running { background: rgba(59,201,116,0.15); color:#3bc974; }
 .mc-status-badge.stopped { background: rgba(255,255,255,0.08); color:#9aa4b2; }
-.mc-status-badge.starting, .mc-status-badge.stopping, .mc-status-badge.provisioning { background: rgba(255,193,7,0.15); color:#ffc107; }
+.mc-status-badge.starting, .mc-status-badge.stopping, .mc-status-badge.provisioning, .mc-status-badge.updating { background: rgba(255,193,7,0.15); color:#ffc107; }
 .mc-status-badge.crashed { background: rgba(237,66,69,0.15); color:#ed4245; }
 
 .mc-edition-toggle { display:flex; gap:8px; }
@@ -583,6 +621,48 @@ textarea { resize: vertical; min-height: 85px; }
    chiffre" de .stat-value, trop large pour du texte. */
 .sc-chart { display: block; width: 100%; height: 220px; }
 .stat-value.sc-stat-text { font-size: 17px; line-height: 1.3; }
+
+/* ── Tableau de bord Minecraft : cartes "État du système" (compactes,
+   comme un panneau d'hébergeur classique) et liste d'actions rapides ── */
+.mc-dashboard-row { align-items: stretch; }
+.mc-quick-actions { display: flex; flex-direction: column; }
+.mc-quick-action {
+  display: flex; align-items: center; gap: 12px;
+  padding: 13px 4px; border-bottom: 1px solid var(--border);
+  cursor: pointer; color: var(--text); font-size: 14.5px; font-weight: 500;
+  transition: opacity 0.15s ease;
+}
+.mc-quick-action:last-child { border-bottom: none; }
+.mc-quick-action:hover { opacity: 0.75; }
+.mc-quick-action .icon-svg:first-child { color: var(--text-muted); flex-shrink: 0; }
+.mc-quick-action span { flex: 1; }
+.mc-quick-action-arrow { color: var(--text-muted); flex-shrink: 0; }
+.mc-quick-action-danger { color: var(--coral); }
+.mc-quick-action-danger .icon-svg:first-child { color: var(--coral); }
+
+/* ── Lignes d'activité avec icône ronde colorée (réutilisées pour le
+   journal du Tableau de bord Minecraft) ── */
+.activity-row .activity-icon {
+  width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.activity-row .activity-icon.ok { background: rgba(59,201,116,0.15); color: #3bc974; }
+.activity-row .activity-icon.pending { background: rgba(88,101,242,0.15); color: #8ea1ff; }
+.activity-row .activity-icon.fail { background: rgba(237,66,69,0.15); color: #ed4245; }
+
+/* ── Logs du serveur (actions joueurs) : réutilise .audit-row, avec une
+   icône colorée par type d'événement. ── */
+.pl-icon {
+  width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.pl-icon.join { background: rgba(59,201,116,0.15); color: #3bc974; }
+.pl-icon.leave { background: rgba(255,255,255,0.08); color: #9aa4b2; }
+.pl-icon.chat { background: rgba(88,101,242,0.15); color: #8ea1ff; }
+.pl-icon.death { background: rgba(237,66,69,0.15); color: #ed4245; }
+.pl-icon.command { background: rgba(245,165,36,0.15); color: var(--amber); }
+.pl-player { font-weight: 600; color: #fff; }
+.pl-detail { color: var(--text-muted); font-size: 13px; margin-top: 2px; word-break: break-word; }
 
 /* ── Gestionnaire de fichiers ───────────────────────────────── */
 .fm-toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }

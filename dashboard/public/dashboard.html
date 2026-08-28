@@ -302,7 +302,7 @@
     </div>
     <div class="nav-item" data-view="server-console">
       <svg class="icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 9l3 3-3 3"/><line x1="13" y1="15" x2="17" y2="15"/><line x1="6" y1="20" x2="18" y2="20"/></svg>
-      Statistiques
+      Console du serveur
     </div>
     <div class="nav-item" data-view="subscription">
       <svg class="icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
@@ -338,11 +338,15 @@
     </div>
     <div class="nav-item" data-view="minecraft" data-service="minecraft">
       <svg class="icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 8h.01M16 8h.01M8 16h8"/></svg>
-      Serveur Minecraft
+      Tableau de bord
     </div>
     <div class="nav-item" data-view="minecraft-console" data-service="minecraft">
       <svg class="icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
       Console Minecraft
+    </div>
+    <div class="nav-item" data-view="minecraft-player-logs" data-service="minecraft">
+      <svg class="icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      Logs du serveur
     </div>
     <div class="nav-item" data-view="files">
       <svg class="icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
@@ -1066,10 +1070,46 @@
       </div>
     </section>
 
+    <section class="view" id="view-minecraft-player-logs">
+      <div class="page-header">
+        <h1>Logs du serveur</h1>
+        <p>Chaque action des joueurs (connexion, déconnexion, chat, mort, commande) avec l'heure et la date — recherchable par pseudo ou par contenu.</p>
+      </div>
+
+      <div class="panel">
+        <div class="toolbar-row" style="flex-wrap:wrap; gap:12px;">
+          <div class="field" style="margin-bottom:0; flex:1; min-width:220px;">
+            <input type="text" id="pl-search-input" placeholder="Rechercher un pseudo, un message, une commande…">
+          </div>
+          <div class="field" style="margin-bottom:0; width:200px;">
+            <select id="pl-type-filter">
+              <option value="">Tous les événements</option>
+              <option value="join">Connexions</option>
+              <option value="leave">Déconnexions</option>
+              <option value="chat">Chat</option>
+              <option value="death">Morts</option>
+              <option value="command">Commandes</option>
+            </select>
+          </div>
+        </div>
+        <p class="field-hint" id="pl-count-hint"></p>
+
+        <div id="pl-list"></div>
+        <div class="empty-state" id="pl-empty" style="display:none;">
+          <div class="icon">📭</div>
+          <div>Aucune action trouvée pour ces critères.</div>
+        </div>
+
+        <div style="text-align:center; margin-top:18px;">
+          <button class="btn-ghost" id="pl-load-more-btn" style="display:none;">Charger plus</button>
+        </div>
+      </div>
+    </section>
+
     <section class="view" id="view-minecraft">
       <div class="page-header">
-        <h1>Serveur Minecraft</h1>
-        <p>Installation, démarrage et console de ton serveur Paper.</p>
+        <h1>Tableau de bord</h1>
+        <p>Installation, état du serveur et actions rapides — la config détaillée et la console live sont dans leurs propres onglets.</p>
       </div>
 
       <div class="panel" id="mc-create-box">
@@ -1108,63 +1148,185 @@
         <button class="btn-primary" id="mc-create-btn">Installer le serveur</button>
       </div>
 
-      <div class="mc-side-by-side">
-        <div class="panel" id="mc-manage-box" style="display:none;">
-          <div class="field-row" style="align-items:center; justify-content:space-between;">
+      <div class="panel" id="mc-provisioning-box" style="display:none;">
+        <h3 class="panel-title">⏳ Installation en cours…</h3>
+        <p class="panel-sub">Téléchargement et configuration du serveur — ça peut prendre une minute selon ta connexion. Le suivi est en direct ci-dessous, pas besoin de recharger la page.</p>
+        <div class="mc-console" id="mc-provisioning-log"></div>
+      </div>
+
+      <div class="mc-side-by-side mc-dashboard-row" id="mc-manage-box" style="display:none;">
+        <div class="panel">
+          <h3 class="panel-title">État du système</h3>
+          <p class="panel-sub">Surveillance en temps réel</p>
+
+          <div class="field-row" style="align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
             <div>
-              <h3 class="panel-title" id="mc-server-name" style="margin-bottom:4px;">—</h3>
+              <h3 class="panel-title" id="mc-server-name" style="margin-bottom:4px; font-size:15px;">—</h3>
               <span class="mc-status-badge" id="mc-status-badge">—</span>
               <span class="mc-edition-badge" id="mc-edition-badge">—</span>
             </div>
-            <div style="display:flex; gap:8px;">
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
               <button class="btn-primary" id="mc-start-btn">Démarrer</button>
               <button class="btn-ghost" id="mc-restart-btn">Redémarrer</button>
               <button class="btn-ghost" id="mc-stop-btn">Arrêter</button>
+              <button class="btn-ghost" id="mc-update-btn" title="Télécharge la dernière version Minecraft disponible — le monde, la config et les joueurs sont conservés">Mise à jour</button>
             </div>
           </div>
 
-          <div class="mc-connection-box" id="mc-connection-box" style="display:none;">
+          <div class="mc-connection-box" id="mc-connection-box" style="display:none; margin-top:16px;">
             <span>🌐 Adresse de connexion :</span>
             <span class="mc-ip" id="mc-ip-public">—</span>
             <button class="btn-ghost" id="mc-ip-copy-btn" type="button" style="padding:4px 10px; font-size:12px;">Copier</button>
             <span class="field-hint" id="mc-ip-local" style="width:100%; margin-top:2px;"></span>
           </div>
-
-          <h3 class="panel-title" style="margin-top:20px;">Console</h3>
-          <div class="mc-console" id="mc-console"></div>
-          <form id="mc-command-form" class="mc-command-form" style="display:flex; gap:8px; margin-top:10px;">
-            <input type="text" id="mc-command-input" class="mono mc-command-input" placeholder="/whitelist add joueur… (ou /ip pour l'adresse)" style="flex:1;">
-            <button class="btn-primary" type="submit">Envoyer</button>
-          </form>
-
-          <p class="field-hint" style="margin-top:24px;">Zone dangereuse :</p>
-          <button class="btn-ghost" id="mc-delete-btn" style="color:var(--coral);">Supprimer ce serveur</button>
         </div>
 
-        <div class="panel" id="mc-properties-box" style="display:none;">
-          <h3 class="panel-title">Configuration du serveur</h3>
-          <p class="panel-sub">Le vrai fichier <code>server.properties</code> de ton serveur — modifie une valeur puis enregistre pour l'appliquer (redémarrage requis pour la prise en compte).</p>
+        <div class="panel">
+          <h3 class="panel-title">Actions rapides</h3>
+          <p class="panel-sub">Gère ton installation en un clic</p>
+          <div class="mc-quick-actions">
+            <div class="mc-quick-action" data-goto-view="minecraft-console">
+              <svg class="icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              <span>Ouvrir la console live</span>
+              <svg class="icon-svg mc-quick-action-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </div>
+            <div class="mc-quick-action" data-scroll-to="mc-properties-box">
+              <svg class="icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              <span>Modifier la configuration</span>
+              <svg class="icon-svg mc-quick-action-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </div>
+            <div class="mc-quick-action" data-scroll-to="mc-admins-box">
+              <svg class="icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              <span>Gérer les administrateurs</span>
+              <svg class="icon-svg mc-quick-action-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </div>
+            <div class="mc-quick-action" data-goto-view="files">
+              <svg class="icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              <span>Gérer les fichiers</span>
+              <svg class="icon-svg mc-quick-action-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </div>
+            <div class="mc-quick-action mc-quick-action-danger" id="mc-delete-btn">
+              <svg class="icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              <span>Supprimer ce serveur</span>
+              <svg class="icon-svg mc-quick-action-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="mc-activity-box" style="display:none;">
+        <h3 class="panel-title">Journal d'activités</h3>
+        <p class="panel-sub">Dernières actions sur ce serveur (démarrage, arrêt, redémarrage…)</p>
+        <div id="mc-activity-list"></div>
+      </div>
+
+      <details class="settings-accordion" id="mc-properties-box" style="display:none;">
+        <summary>
+          <span class="accordion-summary-left">
+            <span class="accordion-icon">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </span>
+            <span class="accordion-title-block">
+              <span class="accordion-title">Configuration du serveur</span>
+              <span class="accordion-sub">Le vrai fichier server.properties — modifie une valeur puis enregistre</span>
+            </span>
+          </span>
+          <svg class="icon-svg accordion-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </summary>
+        <div class="accordion-body">
           <div id="mc-properties-fields" class="mc-properties-grid"></div>
-          <div style="display:flex; align-items:center; gap:14px; margin-top:10px;">
+          <div style="display:flex; align-items:center; gap:14px;">
             <button class="btn-primary" id="mc-properties-save-btn" type="button">Enregistrer la configuration</button>
             <span class="field-hint" id="mc-properties-status" style="margin:0;"></span>
           </div>
         </div>
-      </div>
+      </details>
 
-      <div class="panel" id="mc-admins-box" style="display:none;">
-        <h3 class="panel-title">Administrateurs</h3>
-        <p class="panel-sub">Les pseudos ci-dessous reçoivent la permission <b>Operator</b> à leur connexion : ils peuvent ensuite basculer eux-mêmes entre <b>Créatif</b> et <b>Survie</b> en jeu (menu/commande). Tous les autres joueurs restent limités au mode par défaut du serveur.</p>
-        <div class="field">
-          <label for="mc-admin-input">Ajouter un pseudo</label>
-          <div style="display:flex; gap:8px;">
-            <input type="text" id="mc-admin-input" placeholder="Pseudo Bedrock / Java exact" style="flex:1;">
-            <button class="btn-primary" id="mc-admin-add-btn" type="button">Ajouter</button>
+      <details class="settings-accordion" id="mc-admins-box" style="display:none;">
+        <summary>
+          <span class="accordion-summary-left">
+            <span class="accordion-icon">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </span>
+            <span class="accordion-title-block">
+              <span class="accordion-title">Administrateurs</span>
+              <span class="accordion-sub">Pseudos qui reçoivent la permission Operator à leur connexion</span>
+            </span>
+          </span>
+          <svg class="icon-svg accordion-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </summary>
+        <div class="accordion-body">
+          <p class="field-hint" style="margin-top:0;">Les pseudos ci-dessous reçoivent la permission <b>Operator</b> à leur connexion : ils peuvent ensuite basculer eux-mêmes entre <b>Créatif</b> et <b>Survie</b> en jeu (menu/commande). Tous les autres joueurs restent limités au mode par défaut du serveur.</p>
+          <div class="field">
+            <label for="mc-admin-input">Ajouter un pseudo</label>
+            <div style="display:flex; gap:8px;">
+              <input type="text" id="mc-admin-input" placeholder="Pseudo Bedrock / Java exact" style="flex:1;">
+              <button class="btn-primary" id="mc-admin-add-btn" type="button">Ajouter</button>
+            </div>
+            <p class="field-hint">Le pseudo doit être exactement celui utilisé en jeu (sensible aux espaces, pas à la casse).</p>
           </div>
-          <p class="field-hint">Le pseudo doit être exactement celui utilisé en jeu (sensible aux espaces, pas à la casse).</p>
+          <div id="mc-admin-list" class="mc-admin-list"></div>
         </div>
-        <div id="mc-admin-list" class="mc-admin-list"></div>
-      </div>
+      </details>
+
+      <details class="settings-accordion" id="music-accordion" style="display:none;">
+        <summary>
+          <span class="accordion-summary-left">
+            <span class="accordion-icon">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+            </span>
+            <span class="accordion-title-block">
+              <span class="accordion-title">Playlist musicale</span>
+              <span class="accordion-sub">Musique diffusée sur ce serveur Minecraft tant qu'il est en ligne</span>
+            </span>
+          </span>
+          <svg class="icon-svg accordion-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </summary>
+        <div class="accordion-body">
+          <p class="field-hint" id="music-server-hint" style="margin-bottom:14px;"></p>
+
+          <div class="field-row" style="align-items:center;">
+            <input type="checkbox" id="toggle-music-enabled" style="width:auto;">
+            <label for="toggle-music-enabled" style="margin:0;">Lancer automatiquement la playlist au démarrage du serveur</label>
+          </div>
+          <p class="field-hint" style="margin-top:6px;">Dès que le serveur passe en ligne, la playlist démarre toute seule (et se coupe à l'arrêt) — pas besoin de la lancer à la main.</p>
+          <div class="field-row" style="align-items:center; margin-top:10px; margin-bottom:15px;">
+            <input type="checkbox" id="toggle-music-loop" style="width:auto;" checked>
+            <label for="toggle-music-loop" style="margin:0;">Reboucler la playlist à la fin</label>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="input-music-volume">Volume (0-100)</label>
+              <input type="number" id="input-music-volume" min="0" max="100" value="100">
+            </div>
+            <div class="field">
+              <label for="input-music-duration">Durée par piste avant la suivante (secondes)</label>
+              <input type="number" id="input-music-duration" min="5" value="180">
+            </div>
+          </div>
+          <button class="btn-primary" id="save-music-config-btn">Enregistrer les réglages</button>
+
+          <hr style="border-color:var(--border); margin:20px 0;">
+
+          <div class="field">
+            <label for="input-music-upload">Ajouter une piste (tous formats : mp3, wav, mp4, ogg, flac…)</label>
+            <input type="file" id="input-music-upload" accept="audio/*,video/*,.mp3,.wav,.mp4,.ogg,.flac,.m4a,.aac,.wma,.opus,.mov,.webm,.mkv" multiple>
+            <p class="field-hint">Chaque fichier peut peser jusqu'à 60 Mo. La lecture en jeu passe par une annonce + un son d'ambiance ; le fichier original reste stocké pour intégration à un resource pack.</p>
+          </div>
+
+          <div id="music-tracks-list" class="music-tracks-list"></div>
+
+          <hr style="border-color:var(--border); margin:20px 0;">
+          <div class="field">
+            <label>Lecture audio réelle en jeu</label>
+            <p class="field-hint">Minecraft ne peut lire nativement que des pistes au format <strong>.ogg</strong>. Génère un resource pack à partir de tes pistes .ogg : il s'installe automatiquement si ton serveur est en Bedrock, et reste téléchargeable sinon (à héberger toi-même pour un serveur Java).</p>
+            <div class="stub-actions">
+              <button class="btn-ghost" id="music-build-pack-btn">🎁 Générer le resource pack (.ogg)</button>
+              <button class="btn-ghost" id="music-download-pack-btn">⬇️ Télécharger le .mcpack</button>
+            </div>
+          </div>
+        </div>
+      </details>
     </section>
 
     <section class="view" id="view-files">
@@ -1178,6 +1340,7 @@
           <span class="fm-breadcrumb" id="fm-breadcrumb"></span>
           <div style="flex:1;"></div>
           <button class="btn-ghost" id="fm-new-folder-btn" type="button">Nouveau dossier</button>
+          <button class="btn-ghost" id="mc-pack-install-open-btn" type="button" data-service-only="minecraft">Installer un pack (.mcaddon/.mcpack)</button>
           <label class="btn-primary" style="cursor:pointer; margin:0;">
             Envoyer un fichier
             <input type="file" id="fm-upload-input" style="display:none;">
@@ -1222,16 +1385,20 @@
       <div class="panel">
         <h3 class="panel-title">Compte</h3>
         <div class="field">
-          <label>Nom d'utilisateur</label>
-          <input type="text" id="settings-username" class="mono" readonly>
+          <label for="settings-username">Nom d'utilisateur</label>
+          <div style="display:flex; gap:10px;">
+            <input type="text" id="settings-username" class="mono" style="flex:1;">
+            <button class="btn-primary" id="settings-username-save" disabled>Enregistrer</button>
+          </div>
+          <p class="field-hint" id="settings-username-hint"></p>
         </div>
       </div>
 
       <div class="panel">
         <h3 class="panel-title">Effets de Transparence (Glassmorphism)</h3>
         <div class="field">
-          <label for="range-blur">Flou d'arrière-plan (Blur : <span id="blur-val">10</span>px)</label>
-          <input type="range" id="range-blur" min="0" max="30" value="10">
+          <label for="range-blur">Flou d'arrière-plan (Blur : <span id="blur-val">0</span>px)</label>
+          <input type="range" id="range-blur" min="0" max="30" value="0">
         </div>
         <div class="field">
           <label for="range-opacity">Opacité des panneaux (<span id="opacity-val">80</span>%)</label>
@@ -1241,7 +1408,7 @@
 
       <div class="panel">
         <h3 class="panel-title">Fond d'écran</h3>
-        <p class="panel-sub">Mets une image en fond, ou choisis simplement une couleur si tu ne veux pas mettre de photo.</p>
+        <p class="panel-sub">Mets une image en fond d'écran (URL ou import local).</p>
         <div class="field">
           <label for="input-wallpaper-url">URL de l'image</label>
           <input type="url" id="input-wallpaper-url" placeholder="https://exemple.com/image.png">
@@ -1255,22 +1422,6 @@
           <div id="wallpaper-preview" style="width: 100%; height: 140px; border-radius: 8px; border: 1px dashed var(--border-color, #ccc); background-size: cover; background-position: center; display: flex; align-items: center; justify-content: center; color: #888;">
             Aucun fond personnalisé
           </div>
-        </div>
-
-        <div style="display:flex; align-items:center; gap:12px; margin: 18px 0;">
-          <div style="flex:1; height:1px; background: var(--border-color, rgba(255,255,255,0.1));"></div>
-          <span style="font-size:12px; color:#888; text-transform:uppercase;">Pas envie de mettre une photo ?</span>
-          <div style="flex:1; height:1px; background: var(--border-color, rgba(255,255,255,0.1));"></div>
-        </div>
-
-        <div class="field">
-          <label for="input-bg-color">Couleur de fond unie</label>
-          <div style="display:flex; align-items:center; gap:12px;">
-            <input type="color" id="input-bg-color" value="#0b0714" style="width:52px; height:42px; padding:2px; border-radius:8px; border:1px solid var(--border-color, #333); background:transparent; cursor:pointer;">
-            <input type="text" id="input-bg-color-hex" class="mono" placeholder="#0b0714" style="max-width:140px;">
-            <button class="btn-ghost" id="clear-bg-color-btn" type="button">Retirer la couleur</button>
-          </div>
-          <p class="field-hint">Choisis une couleur unie pour le fond du dashboard à la place d'une image. Elle remplace le fond d'écran tant qu'aucune image n'est définie.</p>
         </div>
       </div>
 
@@ -1411,6 +1562,28 @@
       <button class="btn-ghost" id="type-cancel-btn">Annuler</button>
       <button class="btn-danger" id="type-delete-btn" style="display:none;">Supprimer</button>
       <button class="btn-primary" id="type-save-btn">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="mc-pack-modal-backdrop">
+  <div class="modal">
+    <h2>Installer un pack Bedrock</h2>
+    <p class="field-hint" style="margin-top:-14px; margin-bottom:18px;">
+      Glisse un fichier <code>.mcaddon</code> ou <code>.mcpack</code> (une archive ZIP) ci-dessous — il sera extrait
+      et activé automatiquement pour le monde en cours. Redémarre le serveur ensuite pour que Bedrock le charge.
+    </p>
+
+    <div id="mc-pack-dropzone" class="mc-pack-dropzone">
+      <svg class="icon-svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      <p id="mc-pack-dropzone-text">Glisse ton fichier ici, ou clique pour le choisir</p>
+      <input type="file" id="mc-pack-file-input" accept=".mcaddon,.mcpack,.zip" style="display:none;">
+    </div>
+
+    <div id="mc-pack-status" class="field-hint" style="margin-top:12px;"></div>
+
+    <div class="modal-actions">
+      <button class="btn-ghost" id="mc-pack-cancel-btn">Fermer</button>
     </div>
   </div>
 </div>

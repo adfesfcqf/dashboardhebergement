@@ -75,6 +75,7 @@ const LAZY_LOADERS = {
   'open-tickets': loadOpenTickets,
   minecraft: loadMinecraft,
   'minecraft-console': loadMinecraft,
+  'minecraft-player-logs': loadPlayerLogs,
   files: () => loadFiles(''),
   dayz: loadDayz,
   'server-console': loadServerConsole,
@@ -107,6 +108,11 @@ function initNavigation() {
 function applyServiceVisibility() {
   document.querySelectorAll('.nav-item[data-service]').forEach((item) => {
     item.style.display = item.dataset.service === state.service ? '' : 'none';
+  });
+  // Éléments hors nav qui ne doivent apparaître que pour un service donné
+  // (ex: bouton d'installation de packs Bedrock, propre à Minecraft).
+  document.querySelectorAll('[data-service-only]').forEach((item) => {
+    item.style.display = item.dataset.serviceOnly === state.service ? '' : 'none';
   });
   // Si la vue active vient d'être masquée (ex: on était sur "Connexion bot"
   // et le tenant est en fait Minecraft), on retombe sur "Vue d'ensemble".
@@ -607,6 +613,155 @@ document.getElementById('type-delete-btn')?.addEventListener('click', async () =
   }
 });
 
+// ── Playlist musicale (Configuration générale) ──────────────
+state.music = { enabled: false, volume: 100, loop: true, trackDurationSec: 180, tracks: [], playing: false, currentTrackId: null, hasLinkedServer: false };
+
+function formatBytes(bytes) {
+  if (!bytes) return '0 Ko';
+  const units = ['o', 'Ko', 'Mo', 'Go'];
+  let i = 0;
+  let val = bytes;
+  while (val >= 1024 && i < units.length - 1) {
+    val /= 1024;
+    i += 1;
+  }
+  return `${val.toFixed(val >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+async function loadMusicPlaylist() {
+  const box = document.getElementById('music-accordion');
+  try {
+    state.music = await api('GET', '/api/music');
+    if (box) box.style.display = '';
+  } catch {
+    if (box) box.style.display = 'none';
+    return;
+  }
+  const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+  const setChecked = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
+
+  setChecked('toggle-music-enabled', state.music.enabled);
+  setChecked('toggle-music-loop', state.music.loop);
+  setVal('input-music-volume', state.music.volume);
+  setVal('input-music-duration', state.music.trackDurationSec);
+
+  const hint = document.getElementById('music-server-hint');
+  if (hint) {
+    hint.textContent = state.music.hasLinkedServer
+      ? "Ce compte est lié à un serveur Minecraft — dès que le serveur démarre, la playlist se lance automatiquement si elle est activée ci-dessous."
+      : "Aucun serveur Minecraft n'est lié à ce compte pour l'instant : tu peux déjà préparer la playlist, elle se lancera automatiquement dès qu'un serveur tournera.";
+  }
+
+  renderMusicTracks();
+}
+
+function renderMusicTracks() {
+  const container = document.getElementById('music-tracks-list');
+  if (!container) return;
+  container.innerHTML = '';
+
+  if (state.music.tracks.length === 0) {
+    container.innerHTML = `<div class="empty-state"><div class="icon">🎵</div>Aucune piste. Ajoute un fichier audio ou vidéo ci-dessus pour créer ta playlist.</div>`;
+    return;
+  }
+
+  state.music.tracks.forEach((track, idx) => {
+    const el = document.createElement('div');
+    el.className = 'music-track' + (state.music.currentTrackId === track.id ? ' is-playing' : '');
+    el.innerHTML = `
+      <span class="music-track-name">${state.music.currentTrackId === track.id ? '🔊 ' : '🎧 '}${escapeHtml(track.name)}</span>
+      <span class="music-track-meta">${escapeHtml((track.ext || '').replace('.', '').toUpperCase())} · ${formatBytes(track.sizeBytes)}</span>
+      <div class="music-track-actions">
+        <button class="btn-ghost move-up-btn" ${idx === 0 ? 'disabled' : ''} title="Monter">⬆️</button>
+        <button class="btn-ghost move-down-btn" ${idx === state.music.tracks.length - 1 ? 'disabled' : ''} title="Descendre">⬇️</button>
+        <button class="btn-ghost delete-track-btn" title="Supprimer">🗑️</button>
+      </div>
+    `;
+    el.querySelector('.move-up-btn').addEventListener('click', () => reorderMusicTrack(idx, idx - 1));
+    el.querySelector('.move-down-btn').addEventListener('click', () => reorderMusicTrack(idx, idx + 1));
+    el.querySelector('.delete-track-btn').addEventListener('click', () => deleteMusicTrack(track.id));
+    container.appendChild(el);
+  });
+}
+
+async function reorderMusicTrack(from, to) {
+  if (to < 0 || to >= state.music.tracks.length) return;
+  const tracks = [...state.music.tracks];
+  const [moved] = tracks.splice(from, 1);
+  tracks.splice(to, 0, moved);
+  try {
+    state.music = { ...state.music, ...(await api('POST', '/api/music/tracks/reorder', { order: tracks.map((t) => t.id) })) };
+    renderMusicTracks();
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+async function deleteMusicTrack(id) {
+  if (!confirm('Supprimer cette piste de la playlist ?')) return;
+  try {
+    state.music = { ...state.music, ...(await api('POST', '/api/music/tracks/delete', { id })) };
+    renderMusicTracks();
+    toast('Piste supprimée.');
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+document.getElementById('save-music-config-btn')?.addEventListener('click', async () => {
+  try {
+    await api('POST', '/api/music/config', {
+      enabled: document.getElementById('toggle-music-enabled').checked,
+      loop: document.getElementById('toggle-music-loop').checked,
+      volume: Number(document.getElementById('input-music-volume').value),
+      trackDurationSec: Number(document.getElementById('input-music-duration').value),
+    });
+    // Recharge tout l'état (et pas juste le patch renvoyé) : si l'activation
+    // vient de déclencher un démarrage/arrêt immédiat côté serveur (voir
+    // /api/music/config), on veut que playing/currentTrackId reflètent
+    // tout de suite ce changement dans la liste des pistes.
+    await loadMusicPlaylist();
+    toast('Réglages de la playlist enregistrés.');
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
+
+document.getElementById('input-music-upload')?.addEventListener('change', async (e) => {
+  const files = [...(e.target.files || [])];
+  e.target.value = '';
+  for (const file of files) {
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1] || '');
+        reader.onerror = () => reject(new Error(`Lecture impossible pour ${file.name}`));
+        reader.readAsDataURL(file);
+      });
+      state.music = { ...state.music, ...(await api('POST', '/api/music/tracks', { name: file.name, base64 })) };
+      renderMusicTracks();
+    } catch (err) {
+      toast(err.message, true);
+    }
+  }
+  if (files.length) toast(`${files.length} piste(s) ajoutée(s).`);
+});
+
+document.getElementById('music-build-pack-btn')?.addEventListener('click', async () => {
+  try {
+    const result = await api('POST', '/api/music/resource-pack', {});
+    toast(result.autoInstalled
+      ? `Resource pack généré et installé (${result.trackCount} piste(s)).`
+      : `Resource pack généré (${result.trackCount} piste(s)) — télécharge-le et installe-le manuellement.`);
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
+
+document.getElementById('music-download-pack-btn')?.addEventListener('click', () => {
+  window.open('/api/music/resource-pack/download', '_blank');
+});
+
 // ── Statistiques ───────────────────────────────────────────
 function typeLabel(typeId) {
   const t = state.ticketTypes.find((t) => t.id === typeId);
@@ -799,6 +954,15 @@ const AUDIT_ACTION_LABELS = {
   'admins.role_change': "Rôle d'un administrateur modifié",
   'settings.bot.update': 'Configuration du bot modifiée',
   'settings.dayz.update': 'Configuration DayZ modifiée',
+  'minecraft.create': 'Serveur Minecraft installé',
+  'minecraft.start.launched': 'Démarrage lancé',
+  'minecraft.start.success': 'Démarrage réussi',
+  'minecraft.start.failed': 'Échec du démarrage',
+  'minecraft.stop': 'Serveur arrêté',
+  'minecraft.restart.launched': 'Redémarrage lancé',
+  'minecraft.restart.success': 'Redémarrage réussi',
+  'minecraft.restart.failed': 'Échec du redémarrage',
+  'minecraft.delete': 'Serveur Minecraft supprimé',
 };
 
 function auditActionLabel(action) {
@@ -1088,6 +1252,116 @@ document.addEventListener('DOMContentLoaded', () => {
     location.reload();
   });
 
+  // ── Paramètres du compte : photo de profil ─────────────────────
+  // (auparavant : aucun listener nulle part, les boutons restaient
+  // "disabled" pour toujours et la preview ne recevait jamais de src.)
+  const avatarPreview = document.getElementById('settings-avatar-preview');
+  const avatarInput = document.getElementById('settings-avatar-input');
+  const avatarSaveBtn = document.getElementById('settings-avatar-save');
+  const avatarCancelBtn = document.getElementById('settings-avatar-cancel');
+  let avatarOriginalSrc = '';
+  let avatarPendingDataUrl = '';
+
+  avatarInput?.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast('Image trop lourde (2 Mo maximum).', true);
+      avatarInput.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      avatarPendingDataUrl = event.target.result;
+      if (avatarPreview) avatarPreview.src = avatarPendingDataUrl;
+      if (avatarSaveBtn) avatarSaveBtn.disabled = false;
+      if (avatarCancelBtn) avatarCancelBtn.disabled = false;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  avatarSaveBtn?.addEventListener('click', async () => {
+    if (!avatarPendingDataUrl) return;
+    avatarSaveBtn.disabled = true;
+    try {
+      await api('POST', '/api/profile/avatar', { avatar: avatarPendingDataUrl });
+      toast('Photo de profil mise à jour.');
+      avatarOriginalSrc = avatarPendingDataUrl;
+      avatarPendingDataUrl = '';
+      if (avatarInput) avatarInput.value = '';
+      if (avatarCancelBtn) avatarCancelBtn.disabled = true;
+      // La sidebar affiche aussi l'avatar : on la met à jour tout de suite
+      // sans attendre un rechargement de page.
+      const sidebarAvatar = document.getElementById('user-avatar');
+      if (sidebarAvatar) sidebarAvatar.src = avatarOriginalSrc;
+      if (state.me) state.me.avatar = avatarOriginalSrc;
+    } catch (err) {
+      toast(err.message, true);
+      avatarSaveBtn.disabled = false;
+    }
+  });
+
+  avatarCancelBtn?.addEventListener('click', () => {
+    avatarPendingDataUrl = '';
+    if (avatarInput) avatarInput.value = '';
+    if (avatarPreview) avatarPreview.src = avatarOriginalSrc;
+    if (avatarSaveBtn) avatarSaveBtn.disabled = true;
+    avatarCancelBtn.disabled = true;
+  });
+
+  // ── Paramètres du compte : nom d'utilisateur ────────────────────
+  const usernameInput = document.getElementById('settings-username');
+  const usernameSaveBtn = document.getElementById('settings-username-save');
+  const usernameHint = document.getElementById('settings-username-hint');
+  let usernameOriginal = '';
+
+  usernameInput?.addEventListener('input', () => {
+    if (usernameSaveBtn) usernameSaveBtn.disabled = usernameInput.value.trim() === usernameOriginal || usernameInput.disabled;
+  });
+
+  usernameSaveBtn?.addEventListener('click', async () => {
+    const value = usernameInput?.value.trim();
+    if (!value) return;
+    usernameSaveBtn.disabled = true;
+    try {
+      const data = await api('POST', '/api/profile/username', { username: value });
+      toast("Nom d'utilisateur mis à jour.");
+      usernameOriginal = data.username;
+      if (usernameInput) usernameInput.value = data.username;
+      const sidebarName = document.getElementById('user-name');
+      if (sidebarName) sidebarName.textContent = data.username;
+      if (state.me) state.me.username = data.username;
+    } catch (err) {
+      toast(err.message, true);
+      usernameSaveBtn.disabled = false;
+    }
+  });
+
+  // Pré-remplit avatar + pseudo dès que /api/me a répondu (loadMe() est
+  // appelée au démarrage) ; si la personne arrive directement sur l'onglet
+  // Paramètres avant que ça ait fini de charger, on réessaie une fois.
+  function fillAccountSettings() {
+    if (!state.me) return false;
+    if (avatarPreview) avatarPreview.src = state.me.avatar;
+    avatarOriginalSrc = state.me.avatar;
+    if (usernameInput) {
+      usernameInput.value = state.me.username;
+      usernameOriginal = state.me.username;
+      const isLocalAccount = String(state.me.id || '').startsWith('local:');
+      usernameInput.disabled = !isLocalAccount;
+      if (usernameHint) {
+        usernameHint.textContent = isLocalAccount
+          ? ''
+          : "Compte connecté via Discord : le pseudo est synchronisé automatiquement depuis Discord et ne peut pas être changé ici.";
+      }
+    }
+    return true;
+  }
+  if (!fillAccountSettings()) {
+    const retry = setInterval(() => { if (fillAccountSettings()) clearInterval(retry); }, 300);
+    setTimeout(() => clearInterval(retry), 5000);
+  }
+
   // Restauration du thème sauvegardé
   const savedTheme = localStorage.getItem('dashboard_theme_config');
   if (savedTheme) {
@@ -1102,6 +1376,7 @@ let mcLogsPollTimer = null;
 const MC_STATUS_LABELS = {
   stopped: 'Arrêté', starting: 'Démarrage…', running: 'En ligne',
   stopping: 'Arrêt en cours…', provisioning: 'Installation…', crashed: 'Erreur',
+  updating: 'Mise à jour…',
 };
 
 let mcSelectedEdition = 'java';
@@ -1112,16 +1387,45 @@ async function loadMinecraft() {
     state.minecraft = data;
     renderMinecraftPanel();
     if (data.config.created) {
+      // Pendant une mise à jour (téléchargement en arrière-plan), on
+      // repolle comme pour une installation initiale — c'est ce qui fait
+      // sortir automatiquement le badge de l'état 'updating' dès que c'est
+      // terminé, sans recharger la page.
+      if (data.runtime.status === 'updating') {
+        startMcProvisionPolling();
+      } else {
+        stopMcProvisionPolling();
+      }
       startMcLogsPolling();
       loadMcProperties();
       loadMcAdmins();
+      loadMusicPlaylist();
+    } else if (data.runtime.status === 'provisioning') {
+      startMcProvisionPolling();
+      startMcLogsPolling();
     } else {
+      stopMcProvisionPolling();
       setMcEdition(data.config.edition || 'java');
       if (mcSelectedEdition === 'java') loadMcVersions();
     }
   } catch (err) {
     toast(err.message, true);
   }
+}
+
+// Pendant l'installation (téléchargement/extraction en arrière-plan côté
+// serveur), on repolle /api/minecraft toutes les 2s jusqu'à ce que
+// runtime.status sorte de 'provisioning' — c'est ce qui fait basculer
+// automatiquement l'UI vers la carte de gestion dès que c'est prêt, sans
+// que la personne ait besoin de recharger la page.
+let mcProvisionPollTimer = null;
+function startMcProvisionPolling() {
+  if (mcProvisionPollTimer) return;
+  mcProvisionPollTimer = setInterval(loadMinecraft, 2000);
+}
+function stopMcProvisionPolling() {
+  if (mcProvisionPollTimer) clearInterval(mcProvisionPollTimer);
+  mcProvisionPollTimer = null;
 }
 
 // ── Sélecteur Java / Bedrock du formulaire de création ─────────────
@@ -1183,11 +1487,24 @@ function renderMinecraftPanel() {
   const { config, runtime } = state.minecraft;
   const createBox = document.getElementById('mc-create-box');
   const manageBox = document.getElementById('mc-manage-box');
+  const provisioningBox = document.getElementById('mc-provisioning-box');
   if (!createBox || !manageBox) return;
 
   const isCreated = !!config.created;
-  createBox.style.display = isCreated ? 'none' : '';
+  const isProvisioning = !isCreated && runtime.status === 'provisioning';
+  createBox.style.display = (isCreated || isProvisioning) ? 'none' : '';
+  if (provisioningBox) provisioningBox.style.display = isProvisioning ? '' : 'none';
   manageBox.style.display = isCreated ? '' : 'none';
+  const activityBox = document.getElementById('mc-activity-box');
+  if (activityBox) activityBox.style.display = isCreated ? '' : 'none';
+
+  if (!isCreated && !isProvisioning && runtime.lastError) {
+    toast(`Dernière installation échouée : ${runtime.lastError}`, true);
+  }
+  if (isCreated && runtime.status === 'crashed' && runtime.lastError && runtime.lastError !== state.mcLastReportedUpdateError) {
+    state.mcLastReportedUpdateError = runtime.lastError;
+    toast(`Mise à jour échouée : ${runtime.lastError}`, true);
+  }
 
   // Copie autonome de la console (vue "Console Minecraft") : même logique
   // d'affichage, indépendante de l'onglet Configuration.
@@ -1228,11 +1545,185 @@ function renderMinecraftPanel() {
   const startBtn = document.getElementById('mc-start-btn');
   const stopBtn = document.getElementById('mc-stop-btn');
   const restartBtn = document.getElementById('mc-restart-btn');
+  const updateBtn = document.getElementById('mc-update-btn');
   const running = runtime.status === 'running' || runtime.status === 'starting';
-  if (startBtn) startBtn.disabled = running || runtime.status === 'stopping';
+  const updating = runtime.status === 'updating';
+  if (startBtn) startBtn.disabled = running || runtime.status === 'stopping' || updating;
   if (stopBtn) stopBtn.disabled = !running;
-  if (restartBtn) restartBtn.disabled = !running;
+  if (restartBtn) restartBtn.disabled = !running || updating;
+  // Le serveur doit être arrêté pour être mis à jour (le binaire/jar est
+  // remplacé sur disque) — même logique que provision().
+  if (updateBtn) {
+    updateBtn.disabled = running || runtime.status === 'stopping' || updating;
+    updateBtn.textContent = updating ? 'Mise à jour…' : 'Mise à jour';
+  }
+
+  loadMcActivity();
 }
+
+// ── Journal d'activités du Tableau de bord Minecraft : réutilise
+// l'endpoint d'audit-log général, filtré sur les actions "minecraft.*". ──
+function formatRelativeTime(iso) {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const min = Math.round(diffMs / 60000);
+  if (min < 1) return "à l'instant";
+  if (min < 60) return `Il y a ${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `Il y a ${h}h`;
+  const d = Math.round(h / 24);
+  return `Il y a ${d} jour${d > 1 ? 's' : ''}`;
+}
+
+const MC_ACTIVITY_ICONS = {
+  'minecraft.create': { icon: 'ok', svg: '<path d="M20 6L9 17l-5-5"/>' },
+  'minecraft.start.launched': { icon: 'pending', svg: '<polygon points="5 3 19 12 5 21 5 3"/>' },
+  'minecraft.start.success': { icon: 'ok', svg: '<path d="M20 6L9 17l-5-5"/>' },
+  'minecraft.start.failed': { icon: 'fail', svg: '<circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>' },
+  'minecraft.stop': { icon: 'fail', svg: '<rect x="6" y="6" width="12" height="12" rx="1"/>' },
+  'minecraft.restart.launched': { icon: 'pending', svg: '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>' },
+  'minecraft.restart.success': { icon: 'ok', svg: '<path d="M20 6L9 17l-5-5"/>' },
+  'minecraft.restart.failed': { icon: 'fail', svg: '<circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>' },
+  'minecraft.delete': { icon: 'fail', svg: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>' },
+};
+
+async function loadMcActivity() {
+  const list = document.getElementById('mc-activity-list');
+  if (!list) return;
+  let entries;
+  try {
+    const data = await api('GET', '/api/audit-log?limit=100');
+    entries = (data.entries || data || []).filter((e) => String(e.action || '').startsWith('minecraft.'));
+  } catch {
+    return; // silencieux : ce journal n'est qu'un bonus d'info sur cette page
+  }
+
+  if (!entries.length) {
+    list.innerHTML = '<div class="activity-row"><div class="activity-body">Aucune activité pour le moment.</div></div>';
+    return;
+  }
+
+  list.innerHTML = entries.slice(0, 8).map((e) => {
+    const meta = MC_ACTIVITY_ICONS[e.action] || { icon: 'pending', svg: '<circle cx="12" cy="12" r="4"/>' };
+    const label = auditActionLabel(e.action);
+    const detail = e.action.endsWith('.failed') && e.details?.error
+      ? e.details.error
+      : (e.target || '');
+    return `
+      <div class="activity-row">
+        <span class="activity-icon ${meta.icon}">
+          <svg class="icon-svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">${meta.svg}</svg>
+        </span>
+        <div class="activity-body">
+          <b>${escapeHtml(label)}</b> · ${formatRelativeTime(e.createdAt)}
+          <div class="field-hint" style="margin-top:2px;">${escapeHtml(detail)}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// ── Logs du serveur (journal des actions joueurs) : recherche + filtre
+// par type d'événement, pagination par "Charger plus". ──────────────
+const PL_TYPE_META = {
+  join: { cls: 'join', label: 'Connexion', svg: '<polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>' },
+  leave: { cls: 'leave', label: 'Déconnexion', svg: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>' },
+  chat: { cls: 'chat', label: 'Chat', svg: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>' },
+  death: { cls: 'death', label: 'Mort', svg: '<path d="M12 2a5 5 0 0 0-5 5c0 2 1 3.5 2 4.5L6 15v5h2v-3h2v3h4v-3h2v3h2v-5l-3-3.5c1-1 2-2.5 2-4.5a5 5 0 0 0-5-5z"/><circle cx="10" cy="7" r="1"/><circle cx="14" cy="7" r="1"/>' },
+  command: { cls: 'command', label: 'Commande', svg: '<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>' },
+};
+const PL_PAGE_SIZE = 40;
+let plOffset = 0;
+let plSearchDebounce = null;
+
+function plDetailLine(entry) {
+  switch (entry.eventType) {
+    case 'chat': return `« ${entry.detail || ''} »`;
+    case 'command': return entry.detail || '';
+    case 'death': return entry.detail || '';
+    default: return '';
+  }
+}
+
+async function loadPlayerLogs(reset = true) {
+  const list = document.getElementById('pl-list');
+  const empty = document.getElementById('pl-empty');
+  const countHint = document.getElementById('pl-count-hint');
+  const loadMoreBtn = document.getElementById('pl-load-more-btn');
+  if (!list) return;
+
+  if (reset) plOffset = 0;
+  const query = document.getElementById('pl-search-input')?.value.trim() || '';
+  const type = document.getElementById('pl-type-filter')?.value || '';
+
+  let data;
+  try {
+    const params = new URLSearchParams({ limit: PL_PAGE_SIZE, offset: plOffset });
+    if (query) params.set('q', query);
+    if (type) params.set('type', type);
+    data = await api('GET', `/api/minecraft/player-logs?${params.toString()}`);
+  } catch (err) {
+    return toast(err.message, true);
+  }
+
+  const rows = data.entries.map((entry) => {
+    const meta = PL_TYPE_META[entry.eventType] || PL_TYPE_META.join;
+    const detail = plDetailLine(entry);
+    return `
+      <div class="audit-row">
+        <span class="pl-icon ${meta.cls}">
+          <svg class="icon-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${meta.svg}</svg>
+        </span>
+        <div class="audit-row-body">
+          <span class="pl-player">${escapeHtml(entry.playerName)}</span> — ${meta.label}
+          <div class="audit-row-meta">${formatDate(entry.createdAt)}</div>
+          ${detail ? `<div class="pl-detail">${escapeHtml(detail)}</div>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  if (reset) {
+    list.innerHTML = rows;
+  } else {
+    list.insertAdjacentHTML('beforeend', rows);
+  }
+
+  const shown = plOffset + data.entries.length;
+  if (empty) empty.style.display = shown === 0 ? '' : 'none';
+  if (countHint) {
+    countHint.textContent = data.total
+      ? `${shown} / ${data.total} action${data.total > 1 ? 's' : ''}`
+      : '';
+  }
+  if (loadMoreBtn) loadMoreBtn.style.display = shown < data.total ? '' : 'none';
+  plOffset = shown;
+}
+
+document.getElementById('pl-search-input')?.addEventListener('input', () => {
+  clearTimeout(plSearchDebounce);
+  plSearchDebounce = setTimeout(() => loadPlayerLogs(true), 350);
+});
+document.getElementById('pl-type-filter')?.addEventListener('change', () => loadPlayerLogs(true));
+document.getElementById('pl-load-more-btn')?.addEventListener('click', () => loadPlayerLogs(false));
+
+// ── Actions rapides (Tableau de bord Minecraft) : navigation vers un
+// autre onglet, ou scroll fluide vers une section de la page courante. ──
+document.querySelectorAll('.mc-quick-action[data-goto-view]').forEach((el) => {
+  el.addEventListener('click', () => {
+    document.querySelector(`.nav-item[data-view="${el.dataset.gotoView}"]`)?.click();
+  });
+});
+document.querySelectorAll('.mc-quick-action[data-scroll-to]').forEach((el) => {
+  el.addEventListener('click', () => {
+    const target = document.getElementById(el.dataset.scrollTo);
+    if (!target) return;
+    // Configuration/Admins sont maintenant des accordéons repliés par
+    // défaut (<details>) : on les ouvre avant de scroller, sinon on
+    // atterrit sur un titre fermé sans voir le contenu visé.
+    if (target.tagName === 'DETAILS') target.open = true;
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+});
 
 // ── Onglet "Configuration" : formulaire généré depuis le schéma renvoyé
 // par l'API (une clé server.properties par champ), propre à l'édition
@@ -1615,10 +2106,14 @@ document.getElementById('mc-create-btn')?.addEventListener('click', async () => 
   if (edition === 'java' && !mcVersion) return toast('Choisis une version Minecraft.', true);
 
   const btn = document.getElementById('mc-create-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Installation en cours…'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Lancement…'; }
   try {
+    // La route répond tout de suite (le téléchargement continue derrière) :
+    // on bascule donc immédiatement sur la carte "Installation en cours"
+    // avec le suivi en direct, au lieu de laisser le bouton figé pendant
+    // toute la durée du téléchargement/extraction.
     await api('POST', '/api/minecraft/create', { name, edition, mcVersion, memoryMb, port });
-    toast('Serveur installé — tu peux le démarrer.');
+    toast('Installation lancée — suivi en direct ci-dessous.');
     await loadMinecraft();
   } catch (err) {
     toast(err.message, true);
@@ -1649,6 +2144,20 @@ document.getElementById('mc-restart-btn')?.addEventListener('click', async () =>
     await api('POST', '/api/minecraft/restart');
     toast('Redémarrage du serveur…');
     setTimeout(loadMinecraft, 1500);
+  } catch (err) { toast(err.message, true); }
+});
+
+document.getElementById('mc-update-btn')?.addEventListener('click', async () => {
+  const isBedrock = state.minecraft?.config?.edition === 'bedrock';
+  const msg = isBedrock
+    ? 'Télécharger la dernière version du Bedrock Dedicated Server ? Le monde, la configuration et les listes de joueurs sont conservés.'
+    : 'Télécharger la dernière version Minecraft (Paper) disponible ? Le monde, la configuration et les listes de joueurs sont conservés.';
+  if (!confirm(msg)) return;
+  try {
+    await api('POST', '/api/minecraft/update');
+    toast('Mise à jour lancée — suivi en direct dans la console.');
+    startMcLogsPolling();
+    await loadMinecraft();
   } catch (err) { toast(err.message, true); }
 });
 
@@ -1865,6 +2374,89 @@ document.getElementById('fm-upload-input')?.addEventListener('change', async (e)
   };
   reader.readAsDataURL(file);
 });
+
+// ── Installation de packs Bedrock (.mcaddon / .mcpack) ───────────────
+(() => {
+  const backdrop = document.getElementById('mc-pack-modal-backdrop');
+  const openBtn = document.getElementById('mc-pack-install-open-btn');
+  const cancelBtn = document.getElementById('mc-pack-cancel-btn');
+  const dropzone = document.getElementById('mc-pack-dropzone');
+  const dropzoneText = document.getElementById('mc-pack-dropzone-text');
+  const fileInput = document.getElementById('mc-pack-file-input');
+  const statusEl = document.getElementById('mc-pack-status');
+  if (!backdrop || !dropzone || !fileInput) return;
+
+  const MAX_PACK_BYTES = 150 * 1024 * 1024;
+
+  function openModal() {
+    statusEl.textContent = '';
+    dropzoneText.textContent = 'Glisse ton fichier ici, ou clique pour le choisir';
+    backdrop.classList.add('show');
+  }
+  function closeModal() {
+    backdrop.classList.remove('show');
+  }
+
+  openBtn?.addEventListener('click', openModal);
+  cancelBtn?.addEventListener('click', closeModal);
+  backdrop.addEventListener('click', (e) => {
+    if (e.target === backdrop) closeModal();
+  });
+
+  dropzone.addEventListener('click', () => fileInput.click());
+
+  ['dragenter', 'dragover'].forEach((evt) => {
+    dropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropzone.classList.add('drag-over');
+    });
+  });
+  ['dragleave', 'drop'].forEach((evt) => {
+    dropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('drag-over');
+    });
+  });
+  dropzone.addEventListener('drop', (e) => {
+    const file = e.dataTransfer?.files?.[0];
+    if (file) handlePackFile(file);
+  });
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files?.[0];
+    if (file) handlePackFile(file);
+    fileInput.value = '';
+  });
+
+  function handlePackFile(file) {
+    const name = file.name || '';
+    const ext = name.slice(name.lastIndexOf('.')).toLowerCase();
+    if (!['.mcaddon', '.mcpack', '.zip'].includes(ext)) {
+      statusEl.textContent = "Format non reconnu — envoie un fichier .mcaddon ou .mcpack (une archive ZIP).";
+      return;
+    }
+    if (file.size > MAX_PACK_BYTES) {
+      statusEl.textContent = 'Fichier trop volumineux (max 150 Mo).';
+      return;
+    }
+    dropzoneText.textContent = `Installation de "${name}" en cours…`;
+    statusEl.textContent = '';
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64 = String(reader.result).split(',')[1];
+      try {
+        const { installed } = await api('POST', '/api/minecraft/packs/install', { base64, filename: name });
+        const summary = installed.map((p) => `${p.name} (${p.kind === 'resource' ? 'ressources' : 'comportement'})`).join(', ');
+        statusEl.textContent = `✅ Installé : ${summary}. Redémarre le serveur pour l'activer.`;
+        dropzoneText.textContent = 'Glisse ton fichier ici, ou clique pour le choisir';
+        toast('Pack installé.');
+      } catch (err) {
+        statusEl.textContent = `❌ ${err.message}`;
+        dropzoneText.textContent = 'Glisse ton fichier ici, ou clique pour le choisir';
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+})();
 
 // ── Module DayZ ─────────────────────────────────────────────
 state.dayz = { safeZones: [], staffWhitelist: [] };
